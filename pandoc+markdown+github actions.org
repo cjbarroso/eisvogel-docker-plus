@@ -170,8 +170,8 @@ titlepage-rule-color: "FFFFFF"
 titlepage-rule-height: 2
 header-left: "Confidential"
 titlepage-color: "3C9F53"
-page-background: /opt/pandoc/bg-body-teracloud.pdf
-titlepage-background: /opt/pandoc/bg-titlepage-teracloud.pdf
+page-background: /opt/pandoc/background-pages.pdf
+titlepage-background: /opt/pandoc/background-titlepage.pdf
 header-includes:
 - |
   ```{=latex}
