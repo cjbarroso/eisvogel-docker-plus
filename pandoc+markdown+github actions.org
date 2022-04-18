@@ -1,0 +1,461 @@
+#+TITLE: Pandoc Markdown Github Actions
+#+PROPERTY: header-args :dir ~/Projects/MDPandocGithub
+
+
+Lo mejor será empezar con un prototipo que use pandoc dentro de un container de dropbox
+
+* Dockerfile
+** Code
+Este dockerfile crea una imagen con todo lo que necesita un container para crear documentación con pandoc y el branding de teracloud.
+
+#+begin_src dockerfile :tangle Dockerfile.terapandoc
+FROM pandoc/latex
+ARG eisvogel_version=2.0.0
+ARG plantuml_version="1.2022.2"
+
+# Eisvogel template
+RUN mkdir -p /opt/pandoc/templates && \
+    wget -O - https://github.com/Wandmalfarbe/pandoc-latex-template/releases/download/v${eisvogel_version}/Eisvogel-${eisvogel_version}.tar.gz | \
+    tar zxvf - -C /opt/pandoc/templates
+
+# system libraries
+RUN apk add --no-cache \
+    graphviz \
+    openjdk11 \
+    python3 \
+    py3-pip \
+    ttf-droid \
+    ttf-droid-nonlatin
+
+RUN apk add --no-cache \
+    wkhtmltopdf
+
+# Install plantuml
+RUN wget https://github.com/plantuml/plantuml/releases/download/v${plantuml_version}/plantuml-${plantuml_version}.jar -O /opt/plantuml.jar
+
+RUN pip3 install --upgrade pip
+RUN pip3 install pandoc-plantuml-filter
+ENV PLANTUML_BIN="java -jar /opt/plantuml.jar"
+
+# Latex extensions and filters
+RUN tlmgr install \
+    awesomebox \
+    adjustbox \
+    babel-german \
+    background \
+    bidi \
+    collectbox \
+    csquotes \
+    everypage \
+    filehook \
+    fontawesome5 \
+    footmisc \
+    footnotebackref \
+    framed \
+    fvextra \
+    letltxmacro \
+    ly1 \
+    mdframed \
+    mweights \
+    needspace \
+    pagecolor \
+    sourcecodepro \
+    sourcesanspro \
+    titling \
+    ucharcat \
+    ulem unicode-math \
+    upquote \
+    xecjk \
+    xurl \
+    zref \
+    koma-script
+COPY . /opt/pandoc
+RUN pip install pandoc-latex-environment
+ENTRYPOINT [ "/usr/local/bin/pandoc" ]
+#+end_src
+** Context
+Necesito tener una serie de assets en la imagen, estan en una carpeta =context=:
+#+begin_src shell
+mkdir -p context
+cp ~/org/static/bg-body-teracloud.pdf context/
+cp ~/org/static/bg-titlepage-teracloud.pdf context/
+#+end_src
+
+#+RESULTS:
+
+** Build
+#+begin_src shell :results output verbatim
+docker build -t terapandoc -f Dockerfile.terapandoc context/
+#+end_src
+
+
+* Pandoc wrapper
+Nos pasamos a python, para poder manipular los argumentos mas facilmente. Este wrapper se usa para Emacs.
+
+#+begin_src python :tangle ~/.local/bin/ox-pandoc.py :shebang #!/usr/bin/env python
+import os
+import sys
+import subprocess
+import logging
+import argparse
+
+PANDOC_IMAGE="terapandoc"
+
+logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
+parser = argparse.ArgumentParser()
+
+# I don't want to specify all pandoc params
+args,unknown = parser.parse_known_args()
+
+# get the last parameter
+# assume order from ox-pandoc
+target_full = unknown[-1]
+# convert to basename
+target = os.path.basename(target_full)
+# replace last item in list with new value
+unknown[-1] = target
+
+# Now find the output parameter
+output_index = unknown.index("-o")
+output_index_value = output_index + 1
+
+# Convert it to basename
+output = os.path.basename(unknown[output_index_value])
+
+# Reassign to original string
+unknown[output_index_value] = output
+
+final_pandoc_params = ' '.join(unknown)
+
+# Settings for docker
+current_dir = os.getcwd()
+current_uid = os.getuid()
+current_gid = os.getgid()
+
+pandoc_command = [
+    "docker", "run"
+    ,"--rm"
+    ,"--volume"
+    , f"{current_dir}:/data"
+    ,"--user"
+    ,f"{current_uid}:{current_gid}"
+    ,f"{PANDOC_IMAGE}"
+    ,"--data-dir=/opt/pandoc" # required to work with pandoc
+] + unknown
+logging.debug("#"*80)
+logging.debug(pandoc_command)
+res = subprocess.run(pandoc_command)
+logging.debug(res)
+logging.debug(current_dir)
+#+end_src
+
+* Markdown
+** Example file
+
+#+begin_src markdown :tangle example.md
+---
+title: "Boxes with pandoc-latex-environment and awesomebox"
+author: Teracloud Engineering
+date: "2020-01-01"
+subject: "Markdown"
+keywords: [Markdown, Example]
+lang: "en"
+colorlinks: true
+titlepage: true
+toc: true
+toc-own-page: true
+toc-depth: 2
+titlepage-text-color: "FFFFFF"
+titlepage-rule-color: "FFFFFF"
+titlepage-rule-height: 2
+header-left: "Confidential"
+titlepage-color: "3C9F53"
+page-background: /opt/pandoc/bg-body-teracloud.pdf
+titlepage-background: /opt/pandoc/bg-titlepage-teracloud.pdf
+header-includes:
+- |
+  ```{=latex}
+  \usepackage{awesomebox}
+  ```
+pandoc-latex-environment:
+  noteblock: [note]
+  tipblock: [tip]
+  warningblock: [warning]
+  cautionblock: [caution]
+  importantblock: [important]
+...
+
+# Boxes with `pandoc-latex-environment` and `awesomebox`
+
+This example demonstrates the use of the filter [`pandoc-latex-environments`] to create custom boxes with the [`awesomebox`] package. *pandoc-latex-environment* is a pandoc filter for adding LaTeX environement on specific HTML div tags.
+
+titlepage-rule-color: "360049"
+
+## Box Types
+
+For a list of all available boxes and options visit the [`awesomebox` documentation](https://ctan.org/pkg/awesomebox).
+
+```markdown
+::: note
+Lorem ipsum dolor ...
+:::
+```
+
+::: note
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam aliquet libero
+quis lectus elementum fermentum.
+
+Fusce aliquet augue sapien, non efficitur mi ornare sed. Morbi at dictum
+felis. Pellentesque tortor lacus, semper et neque vitae, egestas commodo nisl.
+:::
+
+```markdown
+::: tip
+Lorem ipsum dolor ...
+:::
+```
+
+::: tip
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam aliquet libero
+quis lectus elementum fermentum.
+
+Fusce aliquet augue sapien, non efficitur mi ornare sed. Morbi at dictum
+felis. Pellentesque tortor lacus, semper et neque vitae, egestas commodo nisl.
+:::
+
+```markdown
+::: warning
+Lorem ipsum dolor ...
+:::
+```
+
+::: warning
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam aliquet libero
+quis lectus elementum fermentum.
+
+Fusce aliquet augue sapien, non efficitur mi ornare sed. Morbi at dictum
+felis. Pellentesque tortor lacus, semper et neque vitae, egestas commodo nisl.
+:::
+
+```markdown
+::: caution
+Lorem ipsum dolor ...
+:::
+```
+
+::: caution
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam aliquet libero
+quis lectus elementum fermentum.
+
+Fusce aliquet augue sapien, non efficitur mi ornare sed. Morbi at dictum
+felis. Pellentesque tortor lacus, semper et neque vitae, egestas commodo nisl.
+:::
+
+```markdown
+::: important
+Lorem ipsum dolor ...
+:::
+```
+
+::: important
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam aliquet libero
+quis lectus elementum fermentum.
+
+Fusce aliquet augue sapien, non efficitur mi ornare sed. Morbi at dictum
+felis. Pellentesque tortor lacus, semper et neque vitae, egestas commodo nisl.
+:::
+
+One can also use raw HTML `div` tags to create the custom environments.
+
+```markdown
+<div class="important">
+Lorem ipsum dolor ...
+</div>
+```
+
+<div class="important">
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam aliquet libero
+quis lectus elementum fermentum.
+</div>
+
+Markdown formatting inside the environments is supported.
+
+::: important
+,**Lorem ipsum dolor** sit amet, `consectetur adipiscing` elit.
+
+```
+if(args.length < 2) {
+	System.out.println("Lorem ipsum dolor sit amet");
+}
+```
+
+,*Nam aliquet libero
+quis lectus elementum fermentum.*
+:::
+
+[`pandoc-latex-environments`]: https://github.com/chdemko/pandoc-latex-environment/
+[`awesomebox`]: https://ctan.org/pkg/awesomebox
+
+#+end_src
+
+** Wrapper script
+
+#+begin_src bash :tangle pandoc-markdown.sh :shebang #!/usr/bin/env bash
+TERADOC_IMAGE=terapandoc
+docker run \
+    --volume $(pwd):/data \
+    --user $(id -u):$(id -g) \
+    ${TERADOC_IMAGE} \
+    --data-dir=/opt/pandoc \
+    --from markdown --template eisvogel \
+    --filter pandoc-latex-environment --listings \
+    -o $2 $1
+#+end_src
+We don't need a wrapper to call pandoc, we just need a set of headers (that can be modified if necessary) without modifying the base image.
+
+The goal is to convert from .md to .pdf using the template, that can have any YAML flags as possible to modify the look of the documents
+(maybe we can have separate YAML config files for different documents, and only one base docker image)
+
+* Archive
+Estos funron los primeros experimentos
+#+begin_src shell
+docker
+# docker flags
+--rm \
+    --volume "$(pwd):/data" \
+    --user $(id -u):$(id -g) \
+    otropandoc
+# file arguments
+    README.org -o outfile.pdf \
+# Pandoc flags
+    --variable=titlepage:t --variable=lang:es \
+    --variable=toc:t --variable=toc-depth:2 \
+    --variable=footer-left:Confidential --variable=titlepage-text-color:FFFFFF \
+    --variable=titlepage-rule-color:FFFFFF --variable=titlepage-rule-height:2 \
+    --variable=page-background:/data/bg-body-teracloud.pdf \
+    --variable=titlepage-background:/data/bg-titlepage-teracloud.pdf \
+    --variable=titlepage-color:3C9F53 \
+    --variable=pandoc-latex-environment:noteblock=[note] \
+    --metadata=pandoc-latex-environment:noteblock=[note] \
+    --template=eisvogel \
+    --data-dir=/opt/pandoc
+#+end_src
+
+
+
+Anda, pero para agregarle:
+
+- Eisvogel
+- Templates de teracloud
+- Libreria de graficos
+
+voy a tener que hacer una dockerimage custom.
+
+
+#+begin_src dockerfile :tangle Dockerfile.terapandoc.legacy
+FROM pandoc/latex
+
+ARG eisvogel_version=2.0.0
+
+RUN tlmgr install luatexja || exit 1
+# RUN tlmgr install haranoaji haranoaji-extra
+RUN tlmgr install adjustbox || exit 1
+RUN tlmgr install background || exit 1
+RUN tlmgr install collectbox || exit 1
+RUN tlmgr install everypage || exit 1
+RUN tlmgr install fontawesome5 || exit 1
+RUN tlmgr install footmisc || exit 1
+RUN tlmgr install footnotebackref || exit 1
+RUN tlmgr install fvextra || exit 1
+RUN tlmgr install ly1 || exit 1
+RUN tlmgr install mdframed || exit 1
+RUN tlmgr install mweights || exit 1
+RUN tlmgr install needspace || exit 1
+RUN tlmgr install pagecolor || exit 1
+RUN tlmgr install sourcecodepro || exit 1
+RUN tlmgr install sourcesanspro || exit 1
+RUN tlmgr install titling || exit 1
+RUN tlmgr install ucharcat || exit 1
+RUN tlmgr install xecjk || exit 1
+RUN tlmgr install zref || exit 1
+RUN tlmgr install selnolig || exit 1
+RUN tlmgr install awesomebox || exit 1
+
+RUN mkdir -p /templates/eisvogel \
+  && wget https://github.com/Wandmalfarbe/pandoc-latex-template/releases/download/v${eisvogel_version}/Eisvogel-${eisvogel_version}.tar.gz -O /templates/eisvogel/eisvogel.tar.gz \
+  && tar -xvzC /templates/eisvogel -f /templates/eisvogel/eisvogel.tar.gz \
+  && mkdir -p /data/templates \
+  && cp /templates/eisvogel/eisvogel.latex /data/templates/
+
+#  && rm -rf /templates/eisvogel
+#+end_src
+
+
+** Wrapper 3
+
+Source
+#+NAME: entrada
+#+begin_src shell
+echo "-f org -t latex -o /home/charlie/Projects/Crediminuto/crediminuto-propuesta-implementacion.pdf --variable=titlepage:t --variable=lang:es --variable=toc:t --variable=toc-depth:2 --variable=footer-left:Confidential --variable=page-background:~/src/static/bg-body-teracloud.pdf --variable=titlepage-text-color:FFFFFF --variable=titlepage-rule-color:FFFFFF --variable=titlepage-rule-height:2 --variable=titlepage-color:3C9F53 --variable=titlepage-background:~/src/static/bg-titlepage-teracloud.pdf --variable=pandoc-latex-environment:noteblock=[note] --metadata=pandoc-latex-environment:noteblock=[note] --filter=pandoc-latex-environment --verbose --template=eisvogel --standalone /home/charlie/Projects/Crediminuto/crediminuto-propuesta-implementacion.tmpZjnOWs.org"
+#+end_src
+
+
+#+begin_src bash :var input=entrada
+# Lets get and modify the last parameter
+INFILE_O=$(echo $input | rev | cut -f1 -d ' ' | rev)
+# Apply basename to get only the file name
+INFILE=$(basename $INFILE_O)
+# echo $INFILE
+# Remove the value from original string
+SECINPUT=$(echo $input | awk 'NF{NF-=1};1')
+
+# Ex
+# capture and modify -o parameter
+echo $SECINPUT | sed -n -e 's/-o \([^ ]*\)//p'
+
+#+end_src
+
+#+RESULTS:
+: -f org -t latex  --variable=titlepage:t --variable=lang:es --variable=toc:t --variable=toc-depth:2 --variable=footer-left:Confidential --variable=page-background:~/src/static/bg-body-teracloud.pdf --variable=titlepage-text-color:FFFFFF --variable=titlepage-rule-color:FFFFFF --variable=titlepage-rule-height:2 --variable=titlepage-color:3C9F53 --variable=titlepage-background:~/src/static/bg-titlepage-teracloud.pdf --variable=pandoc-latex-environment:noteblock=[note] --metadata=pandoc-latex-environment:noteblock=[note] --filter=pandoc-latex-environment --verbose --template=eisvogel --standalone
+** Pandoc wrapper
+Este script abstrae la ejecucion de docker run. Es necesario para compatibilizarlo con ox-pandoc, que requiere un solo comando.
+
+#+begin_src sh :tangle ~/.local/bin/pandoc.sh :shebang #!/usr/bin/env bash
+PANDOC_IMAGE=terapandoc
+# first non-option is the input argument
+# -o option is the  output argument
+OUTPUTFILE=$2
+docker run \
+    --rm \
+    --volume "$(pwd):/data" \
+    --user $(id -u):$(id -g) $PANDOC_IMAGE \
+    --data-dir=/opt/pandoc \
+    $@
+    #--variable=titlepage:t \
+    #--variable=lang:${DOC_LANG} \
+    #--variable=toc:t --variable=toc-depth:2 \
+    #--variable=footer-left:Confidential --variable=titlepage-text-color:FFFFFF \
+    #--variable=titlepage-rule-color:FFFFFF --variable=titlepage-rule-height:2 \
+    #--variable=page-background:/data/bg-body-teracloud.pdf \
+    #--variable=titlepage-background:/data/bg-titlepage-teracloud.pdf \
+    #--variable=titlepage-color:3C9F53 \
+    #--variable=pandoc-latex-environment:noteblock=[note] \
+    #--metadata=pandoc-latex-environment:noteblock=[note] \
+    #--template=eisvogel \
+
+    #${PANDOC_IMAGE} \
+    #${INPUTFILE} -o ${OUTPUTFILE} \
+
+#+end_src
+
+Running pandoc with args: (
+-f org -t latex -o /home/charlie/Projects/Crediminuto/crediminuto-propuesta-implementacion.pdf
+--variable=titlepage:t --variable=lang:es --variable=toc:t --variable=toc-depth:2 --variable=footer-left:Confidential
+--variable=page-background:~/src/static/bg-body-teracloud.pdf --variable=titlepage-text-color:FFFFFF --variable=titlepage-rule-color:FFFFFF
+--variable=titlepage-rule-height:2 --variable=titlepage-color:3C9F53 --variable=titlepage-background:~/src/static/bg-titlepage-teracloud.pdf
+--variable=pandoc-latex-environment:noteblock=[note] --metadata=pandoc-latex-environment:noteblock=[note]
+--filter=pandoc-latex-environment --verbose --template=eisvogel
+--standalone /home/charlie/Projects/Crediminuto/crediminuto-propuesta-implementacion.tmpZjnOWs.org)
+Error occured.
+
+pandoc: /home/charlie/Projects/Crediminuto/crediminuto-propuesta-implementacion.tmpZjnOWs.org: openBinaryFile: does not exist (No such file or directory)

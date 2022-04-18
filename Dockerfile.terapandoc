@@ -1,0 +1,63 @@
+FROM pandoc/latex
+ARG eisvogel_version=2.0.0
+ARG plantuml_version="1.2022.2"
+
+# Eisvogel template
+RUN mkdir -p /opt/pandoc/templates && \
+    wget -O - https://github.com/Wandmalfarbe/pandoc-latex-template/releases/download/v${eisvogel_version}/Eisvogel-${eisvogel_version}.tar.gz | \
+    tar zxvf - -C /opt/pandoc/templates
+
+# system libraries
+RUN apk add --no-cache \
+    graphviz \
+    openjdk11 \
+    python3 \
+    py3-pip \
+    ttf-droid \
+    ttf-droid-nonlatin
+
+RUN apk add --no-cache \
+    wkhtmltopdf
+
+# Install plantuml
+RUN wget https://github.com/plantuml/plantuml/releases/download/v${plantuml_version}/plantuml-${plantuml_version}.jar -O /opt/plantuml.jar
+
+RUN pip3 install --upgrade pip
+RUN pip3 install pandoc-plantuml-filter
+ENV PLANTUML_BIN="java -jar /opt/plantuml.jar"
+
+# Latex extensions and filters
+RUN tlmgr install \
+    awesomebox \
+    adjustbox \
+    babel-german \
+    background \
+    bidi \
+    collectbox \
+    csquotes \
+    everypage \
+    filehook \
+    fontawesome5 \
+    footmisc \
+    footnotebackref \
+    framed \
+    fvextra \
+    letltxmacro \
+    ly1 \
+    mdframed \
+    mweights \
+    needspace \
+    pagecolor \
+    sourcecodepro \
+    sourcesanspro \
+    titling \
+    ucharcat \
+    ulem unicode-math \
+    upquote \
+    xecjk \
+    xurl \
+    zref \
+    koma-script
+COPY . /opt/pandoc
+RUN pip install pandoc-latex-environment
+ENTRYPOINT [ "/usr/local/bin/pandoc" ]

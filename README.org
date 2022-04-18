@@ -1,0 +1,50 @@
+#+TITLE: Readme
+
+* Purpose
+This repo containes code for automating the build of homegeneous, beutiful documents using pandoc and a custom branding and coloring for Teracloud.
+
+* For the user
+The workings of the tool should be mostly transparent, you need to use the normal markdown syntax (you can also use a visual markdown editor if that's your poison), and you just need to be careful of a couple of things.
+
+** YAML front matter
+The configuration of the visual is done in a YAML front matter on the markdown files. It should be mostly static, and you should modify it only when you understand the inner workings.
+As today, the form of the YAML front matter is:
+
+#+begin_src yaml
+---
+title: "The awesome title of your document"
+author: "Teracloud engineering"
+date: "2022-04-17"
+subject: "Kind of document you are making"
+lang: "en"
+titlepage: true
+toc: true
+toc-own-page: true
+toc-depth: 2
+titlepage-text-color: "FFFFFF"
+titlepage-rule-color: "FFFFFF"
+titlepage-rule-height: 2
+header-left: "Confidential"
+titlepage-color: "3C9F53"
+page-background: /opt/pandoc/bg-body-teracloud.pdf
+titlepage-background: /opt/pandoc/bg-titlepage-teracloud.pdf
+header-includes:
+- |
+  ```{=latex}
+  \usepackage{awesomebox}
+  ```
+pandoc-latex-environment:
+  noteblock: [note]
+  tipblock: [tip]
+  warningblock: [warning]
+  cautionblock: [caution]
+  importantblock: [important]
+...
+#+end_src
+
+You can change the language if you are using spanish, as the automatic titles (like table of contents) is localized.
+You should edit =title=, the =subject= and the =author= only if required, and leave everything else as-is.
+
+After this front matter you can begin writing your document as usual.
+* For the implementor
+This should be implemented as a Github action or a similar CI chain, so every time file is commited to the repo it's built and published where it should.
